@@ -5,7 +5,7 @@ The pamo-report-builder should be installed automtaically by pvenv_setup but if 
 ```python
 !pip install git+https://github.com/ministryofjustice/pamo-report-builder.git
 ```
-Once installed you can import the builder and generate a report as per the example below.
+Once installed you can import the builder and generate a report as per the example main.py below.
 ```python
 from report_builder import create_report
 create_report.build_from_toml("report_config.toml")
