@@ -1,5 +1,5 @@
 [project]
-name = "pamo_utilities"
+name = "pamo_report_builder"
 version = "1.0"
 
 authors = [
@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "pandas",
-    "numpy"
+    "numpy",
+    "toml",
+    "xlsxwriter"
 ]
 
 [build-system]
@@ -22,5 +24,5 @@ build-backend = "setuptools.build_meta"
 # Search only under src/
 where = ["src"]
 # Only include these package name patterns (match on *package names*, not paths)
-include = ["pvenv_setup*", "stats_utils*", "report_builder*"]
+include = ["report_builder*"]
 namespaces = true
