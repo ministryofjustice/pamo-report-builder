@@ -13,6 +13,13 @@ from xlsxwriter.utility import xl_rowcol_to_cell
 # -----------------------------
 
 def load_toml(path):
+    """
+    Loads toml file.
+    Args:
+    path (str): File path of toml file.
+    Returns:
+    Dict: Parsed toml file.
+    """
     return toml.load(path)
 
 def load_image(source: dict,
@@ -21,6 +28,12 @@ def load_image(source: dict,
     """
     Load an image from a source dict.
     Supports: function.
+    Args:
+    source (dict): Dictionary specifying the type and path/function for the data.
+    base_dir (Path, optional): Base directory for resolving relative paths.
+    func_registry (dict, optional): Registry of callable functions.
+    Returns:
+    image: img or result (of function).
     """
     stype = source.get("type")
 
@@ -69,6 +82,13 @@ def load_dataframe(source: dict,
     """
     Load a DataFrame from a source dict.
     Supports: csv, excel, function.
+    Args:
+    source (dict): Dictionary specifying the type and path/function for the data.
+    base_dir (Path, optional): Base directory for resolving relative paths.
+    func_registry (dict, optional): Registry of callable functions.
+    Returns:
+    pd.DataFrame: Loaded DataFrame object.
+
     """
     stype = source.get("type")
 
@@ -128,7 +148,12 @@ def load_dataframe(source: dict,
 def resolve_callable(dotted: str, base_dir: Path | None = None):
     """
     Resolve a dotted path to a callable.
-    Supports 'pkg.mod:func' or 'pkg.mod.func'.
+    Supports 'pkg.mod:func' or 'pkg.mod.func'.    
+    Args:
+    dotted (str): Dot notation function reference.
+    base_dir (str): Base directory path.
+    Returns:
+    Function: func
     """
     dotted = dotted.replace(":", ".")
     if "." not in dotted:
@@ -148,14 +173,29 @@ def resolve_callable(dotted: str, base_dir: Path | None = None):
 # Formatting helpers
 # -----------------------------
 def infer_format_name(col_name: str, matchers: list[tuple[re.Pattern, str]], default_name: str | None) -> str | None:
-    """Return the first matching format name for a column using regex matchers."""
+    """
+    Return the first matching format name for a column using regex matchers.
+    Args:
+    col_name (str): Name of column for which we want to determine format.
+    matchers (list): List of format matchers against which we test the column name.
+    default_name (str): A default format name if no other matched.  This can be None.
+    Returns:
+    String: Format name to be applied.    
+    """
     for pattern, fmt_name in matchers:
         if pattern.search(col_name):
             return fmt_name
     return default_name
 
 def build_format(workbook, spec: dict):
-    """Create (and return) a XlsxWriter format from a spec dict (e.g., {'num_format': '£#,##0'})."""
+    """
+    Create (and return) a XlsxWriter format from a spec dict (e.g., {'num_format': '£#,##0'}).
+    Args:
+    workbook (XlsxWriter workbook object): Workbook in which we are working.
+    spec (dict): Format to be added.
+    Returns:
+    XlsxWriter workbook object: Workbook with specified format added.
+    """
     fmt_args = {}
     if spec.get("num_format"):
         fmt_args["num_format"] = spec["num_format"]
@@ -165,7 +205,15 @@ def build_format(workbook, spec: dict):
     return workbook.add_format(fmt_args)
 
 def autosize_width(series: pd.Series, min_w=10, max_w=40) -> int:
-    """Crude auto width based on header and a sample of values."""
+    """
+    Crude auto width based on header and a sample of values.
+    Args:
+    series (pd.series): A dataframe column or part thereof.
+    min_w (int): Optional minimum column width.
+    max_w (int): Optional maximum column width.
+    Returns:
+    int: Column width.
+    """
     header = str(series.name) if series.name is not None else ""
     max_len = len(header)
     # Sample values to avoid massive loops on big data
@@ -180,22 +228,43 @@ def autosize_width(series: pd.Series, min_w=10, max_w=40) -> int:
 # Excel writing helpers (XlsxWriter)
 # -----------------------------
 def write_title(worksheet, row, col, text, fmt):
+    """
+    Args:
+    worksheet (XlsxWriter worksheet object).
+    row (int): Row number where title to be written.
+    col (int): Column number where title to be written.
+    fmt (str): Format top be applied to title text.
+    Returns:
+    int: Last row number on worksheet.
+    """
     worksheet.write(row, col, text, fmt)
     return row + 2  # one line for title + one blank line
 
 def dataframe_to_table_data(df: pd.DataFrame):
-    """Convert DataFrame to list-of-lists with Python scalars, with NaNs -> None."""
-    clean = df.copy()
+    """
+    Convert DataFrame to list-of-lists with Python scalars, with NaNs -> None.
+    Args:
+    df (pd.Datafrme): dataframe to be cleaned for presentation in Excel table.
+    Returns:
+    list: List of lists representing the table data.
+    """
+    df_clean = df.copy()
     # Replace NaN/NA with None so cells are blank, not 'nan'
-    clean = clean.where(pd.notnull(clean), None)
+    df_clean = df_clean.where(pd.notnull(df_clean), "")
     # Ensure Python native types (especially for numpy types)
-    data = clean.values.tolist()
+    data = df_clean.values.tolist()
     return data
 
 def add_excel_table(worksheet, df: pd.DataFrame, start_row: int, start_col: int, table_style: str):
     """
     Add a native Excel Table with header and data.
-    Returns (end_row, end_col), inclusive 0-based positions of the table body.
+    Args:
+    worksheet (XlsxWriter worksheet object).
+    start_row (int): Row number where data to be written.
+    start_col (int): Column number where data to be written.
+    table_style (str): Table style to be applied.
+    Returns: 
+    last_row, last_col: inclusive 0-based positions of the table body.
     """
     nrows, ncols = df.shape
     data = dataframe_to_table_data(df)
@@ -215,6 +284,7 @@ def add_excel_table(worksheet, df: pd.DataFrame, start_row: int, start_col: int,
             "banded_rows": True
         }
     )
+        
     return last_row, last_col
 
 def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, start_col: int,
@@ -224,6 +294,14 @@ def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, s
       - Use matchers to pick named format → num_format and default width
       - Allow per-table overrides with 'column_widths'
       - Fallback to defaults
+    Args:
+    worksheet (XlsxWriter worksheet object).
+    df (pd.DataFrame): Dataframe with data.
+    start_row (int): Row number where data to be written.
+    start_col (int): Column number where data to be written.
+    workbook (XlsxWriter workbook object): Workbook in which we are working.
+    cfg_formats (dict): Dictionary of formats.
+    table_cfg (dict): Dictionary of table formats.
     """
     default_spec   = cfg_formats.get("default", {"num_format": "", "width": 14})
     named          = cfg_formats.get("named", {})
@@ -238,6 +316,13 @@ def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, s
     fmt_cache = {}
 
     def get_format_obj(fmt_name: str | None):
+        """
+        Get format object using its name.
+        Args:
+        fmt_name (str) Format name.
+        Returns:
+        dict: Dictionary with XlsxWriter formats, 
+        """
         if not fmt_name:
             key = "__default__"
             if key not in fmt_cache:
@@ -279,12 +364,23 @@ def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, s
         
             worksheet.write(start_row + 1 + r, start_col + c, df.iat[r, c], fmt_obj)
 
+                
 # -----------------------------
 # Main build function
 # -----------------------------
 def build_from_toml(config_path: str,
                     func_registry: dict[str, callable] | None = None,
                     base_dir: str | Path | None = None):
+
+    """
+    Main procedure to create an Excel report.
+    Args:
+    config_path (str): File path to the config file that sets out the structure and content.
+    func_registry (dict): Dictionary of functions needed to create the tables/charts that will be placed into Excel.
+    base_dir (str): Folder path of the base directory.
+    Returns:
+    None.
+    """
 
     cfg = load_toml(config_path)
     base_dir = Path(base_dir) if base_dir else Path(config_path).resolve().parent
@@ -320,16 +416,18 @@ def build_from_toml(config_path: str,
             worksheet = workbook.add_worksheet(sheet_name)
             writer.sheets[sheet_name] = worksheet
 
+            # Add print header
             if sheet_cfg.get("header"):
-                worksheet.set_header(sheet_cfg["header"]) 
-
+                worksheet.set_header(sheet_cfg["header"])
+                
+            # Add print footer
             if sheet_cfg.get("footer"):
                 worksheet.set_footer(sheet_cfg["footer"])
 
             current_row = 0
             current_col = 0
 
-            # Add protective marking
+            # Add sheet protective marking
             if sheet_cfg.get("protective_marking"):
                 if sheet_cfg.get("protective_marking_span"):  
                     span = sheet_cfg["protective_marking_span"]
@@ -342,7 +440,8 @@ def build_from_toml(config_path: str,
                     worksheet.set_row(0, 24)
 
                 current_row += 2
-                    
+
+            # Add sheet title
             if sheet_cfg.get("title"):
                 worksheet.write(current_row, current_col, sheet_cfg["title"], title_fmt)
                 current_row += 2
