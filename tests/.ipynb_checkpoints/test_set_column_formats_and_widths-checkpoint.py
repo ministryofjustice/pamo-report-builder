@@ -21,6 +21,7 @@ class DummyWorkbook:
 
 
 def test_set_column_formats_uses_matchers_and_caches_formats(monkeypatch):
+    """Test function returns expected formats from dummy config and df"""
     ws = DummyWorksheet()
     wb = DummyWorkbook()
     df = pd.DataFrame({
@@ -74,6 +75,7 @@ def test_set_column_formats_uses_matchers_and_caches_formats(monkeypatch):
 
     
 def test_set_column_formats_width_precedence(monkeypatch):
+    """Test function honours set widths in cfgs"""
     ws = DummyWorksheet()
     wb = DummyWorkbook()
     df = pd.DataFrame({
@@ -114,6 +116,7 @@ def test_set_column_formats_width_precedence(monkeypatch):
     
     
 def test_set_column_formats_uses_default_width_when_named_has_no_width(monkeypatch):
+    """Test function sets default width when no width key given"""
     ws = DummyWorksheet()
     wb = DummyWorkbook()
     df = pd.DataFrame({"col": [1, 2, 3]})
@@ -139,6 +142,7 @@ def test_set_column_formats_uses_default_width_when_named_has_no_width(monkeypat
 
 
 def test_set_column_formats_uses_default_format_when_no_match(monkeypatch):
+    """Test function sets default format if no match in df to cfg"""
     ws = DummyWorksheet()
     wb = DummyWorkbook()
     df = pd.DataFrame({"other": [1, 2]})
@@ -169,6 +173,7 @@ def test_set_column_formats_uses_default_format_when_no_match(monkeypatch):
 
 
 def test_set_column_formats_writes_all_cells_with_correct_offsets(monkeypatch):
+    """Test function honours start_row and start_col inputs"""
     ws = DummyWorksheet()
     wb = DummyWorkbook()
     df = pd.DataFrame({"A": [1, 2], "B": [3, 4]})

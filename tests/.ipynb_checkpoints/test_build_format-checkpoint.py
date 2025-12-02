@@ -13,6 +13,7 @@ class DummyWorkbook:
         return self.return_value
 
 def test_build_format_with_num_format():
+    """Test build_format runs with basic num format"""
     wb = DummyWorkbook()
     spec = {"num_format": "£#,##0"}
 
@@ -23,6 +24,7 @@ def test_build_format_with_num_format():
 
     
 def test_build_format_without_format():
+    """Test build_format returns None without format spec"""
     wb = DummyWorkbook()
     spec = {}
 
@@ -32,6 +34,7 @@ def test_build_format_without_format():
 
 
 def test_build_format_num_format_none_treated_as_absent():
+    """Test build_format returns None with empty spec"""
     wb = DummyWorkbook()
     spec = {"num_format": None}
 
@@ -41,6 +44,7 @@ def test_build_format_num_format_none_treated_as_absent():
 
 
 def test_build_format_ignores_unknown_keys():
+    """Test build_format only returns known keys"""
     wb = DummyWorkbook()
     spec = {
         "num_format": "0.00",

@@ -4,7 +4,7 @@ from create_report import load_toml
 
 
 def test_load_toml_nested(tmp_path):
-    """Loads basic TOML."""
+    """Loads basic TOML"""
     file = tmp_path / "basic.toml"
     file.write_text(
         """
@@ -22,13 +22,13 @@ def test_load_toml_nested(tmp_path):
 
 
 def test_load_toml_nonexistent_file():
-    """Raise FileNotFoundError when file does not exist."""
+    """Raise FileNotFoundError when file does not exist"""
     with pytest.raises(FileNotFoundError):
         load_toml("does_not_exist.toml")
 
 
 def test_load_toml_invalid_toml(tmp_path):
-    """Invalid TOML raises a decoding error."""
+    """Invalid TOML raises a decoding error"""
     file = tmp_path / "bad.toml"
     file.write_text("not = !!! valid = toml")
 

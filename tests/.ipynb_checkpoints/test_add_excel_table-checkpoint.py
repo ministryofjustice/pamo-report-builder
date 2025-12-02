@@ -14,6 +14,7 @@ class DummyWorksheet:
 
 
 def test_add_excel_table_basic(monkeypatch):
+    """Test add_excel_table inserts basic table from df to ws"""
     ws = DummyWorksheet()
     df = pd.DataFrame({"A": [1, 2], "B": [3, 4]})
     table_style = "Table Style Light 1"
@@ -38,6 +39,7 @@ def test_add_excel_table_basic(monkeypatch):
 
 
 def test_add_excel_table_with_offset():
+    """Test add_excel_table honours row-col offset"""
     ws = DummyWorksheet()
     df = pd.DataFrame({"X": [10], "Y": [20], "Z": [30]})
 
@@ -53,6 +55,7 @@ def test_add_excel_table_with_offset():
 
 
 def test_add_excel_table_headers_converted_to_strings():
+    """Test add_excel_table headers are converted to str"""
     ws = DummyWorksheet()
     df = pd.DataFrame(
         {
@@ -71,20 +74,8 @@ def test_add_excel_table_headers_converted_to_strings():
     ]
 
 
-def test_add_excel_table_return_matches_add_table_coords():
-    ws = DummyWorksheet()
-    df = pd.DataFrame({"A": [1, 2, 3]})
-
-    last_row, last_col = add_excel_table(ws, df, start_row=2, start_col=4, table_style="Style")
-
-    (fr, fc, lr, lc, _), = ws.add_table_calls
-
-    assert (last_row, last_col) == (lr, lc)
-    assert fr == 2
-    assert fc == 4
-
-
 def test_add_excel_table_empty_dataframe():
+    """Test add_excel_table takes empty df"""
     ws = DummyWorksheet()
     df = pd.DataFrame(columns=["A", "B"])
 

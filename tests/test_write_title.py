@@ -11,6 +11,7 @@ class DummyWorksheet:
 
 
 def test_write_title_calls_worksheet_write_with_correct_arguments():
+    """Test function writes title as expected and offsets new_row + 2"""
     ws = DummyWorksheet()
     row, col = 3, 1
     text = "Report Title"
@@ -23,6 +24,7 @@ def test_write_title_calls_worksheet_write_with_correct_arguments():
 
 
 def test_write_title_allows_empty_text():
+    """Test function takes empty string as title"""
     ws = DummyWorksheet()
 
     new_row = write_title(ws, 2, 0, "", "fmt")
