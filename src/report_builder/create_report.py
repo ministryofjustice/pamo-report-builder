@@ -546,6 +546,12 @@ def build_from_toml(config_path: str,
                 # Insert the image
                 img = load_image(t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)                
                 worksheet.insert_image(xl_rowcol_to_cell(start_row, start_col), 'chart.png', {'image_data': img, 'x_scale': x_scale, 'y_scale': y_scale})
+                chart_height_rows = int(t_cfg.get("height_rows", 15))  # default 15 rows
+                chart_width_cols = int(t_cfg.get("width_cols", 8))     # optional - not used yet
+                
+                # This is the first free row under the chart block
+                # To place it (or anything) to the side, use cols
+                content_row_below_chart = start_row + chart_height_rows
 
                 # Add chart notes
                 if t_cfg.get("chart_notes"):
