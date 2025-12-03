@@ -1,7 +1,7 @@
 # report_config.toml
 
 [workbook]
-output = "s3://alpha-pay-modelling/Testing/OFFSEN-example_report_chartsize1.xlsx"
+output = "s3://alpha-pay-modelling/Testing/OFFSEN-example_report_chartsize2.xlsx"
 
 [defaults]
 table_style = "Table Style Medium 1"
@@ -68,9 +68,7 @@ table_notes = [
 # 4) Simple chart
 [[sheets.charts]]
 title = "Chart 1. Example"
-# Use an explicit cell reference for chart placement.  The code can't tell how big a chart is when on the sheet, so table positions may also need to be explitly set.
-height_rows = 19
-width_cols  = 6
+size = "large"
 #start_cell = "K5" # Omitting start_cell to test height_rows impact on start_row
 source = [
   { type = "function", dotted = "builders.make_chart" }
