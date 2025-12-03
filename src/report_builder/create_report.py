@@ -555,8 +555,14 @@ def build_from_toml(config_path: str,
 
                 # Add chart notes
                 if t_cfg.get("chart_notes"):
-                    r, c = xl_cell_to_rowcol(t_cfg["chart_notes_start_cell"])
-                    current_row, start_col = r, c
+                    if t_cfg.get("chart_notes_start_cell"):
+                        r, c = xl_cell_to_rowcol(t_cfg["chart_notes_start_cell"])
+                        current_row, start_col = r, c
+                    else:
+                        notes_row = content_row_below_chart
+                        notes_col = start_col
+                        
+                    current_row = notes_row
                     for line in t_cfg["chart_notes"]:                        
                         worksheet.write(current_row, start_col, line, footnote_fmt)
                         current_row += 1
