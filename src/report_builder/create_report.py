@@ -187,52 +187,36 @@ def infer_format_name(col_name: str, matchers: list[tuple[re.Pattern, str]], def
             return fmt_name
     return default_name
 
+
 def build_format(workbook, spec: dict):
-    """
-    Create (and return) a XlsxWriter format from a spec dict (e.g., {'num_format': '£#,##0'}).
-    Args:
-    workbook (XlsxWriter workbook object): Workbook in which we are working.
-    spec (dict): Format to be added.
-    Returns:
-    XlsxWriter workbook object: Workbook with specified format added.
-    """
-    fmt_args = {}
-    if spec.get("num_format"):
-        fmt_args["num_format"] = spec["num_format"]
-        
-    # you can add more properties here if you like, e.g. align, bold, font_color, etc.
-    
-        return workbook.add_format(fmt_args)
-    
-#    ####### Proposed update #######
-#     def build_format(workbook, spec: dict):
-#     """
-#     Create and return an XlsxWriter format from a spec dictionary.
-#     Supports num_format, align, bold, font_color, and any other
-#     XlsxWriter format properties.
-#     """
+     """
+     Create and return an XlsxWriter format from a spec dictionary.
+     Supports num_format, align, bold, font_color, and any other
+     XlsxWriter format properties.
+     """
 
-#     supported_keys = {
-#         "num_format",
-#         "align",
-#         "bold",
-#         "font_color",
-#         "font_name",
-#         "font_size",
-#         "italic",
-#         "underline",
-#         "bg_color",
-#         "border",
-#         "valign",
-#     }
+     supported_keys = {
+         "num_format",
+         "align",
+         "bold",
+         "font_color",
+         "font_name",
+         "font_size",
+         "italic",
+         "underline",
+         "bg_color",
+         "border",
+         "text_wrap",
+         "valign",
+     }
 
-#     fmt_args = {
-#         key: value
-#         for key, value in spec.items()
-#         if key in supported_keys and value is not None
-#     }
+     fmt_args = {
+         key: value
+         for key, value in spec.items()
+         if key in supported_keys and value is not None
+     }
 
-#     return workbook.add_format(fmt_args)
+     return workbook.add_format(fmt_args)
 
 
 def autosize_width(series: pd.Series, min_w=10, max_w=40) -> int:
@@ -280,10 +264,12 @@ def dataframe_to_table_data(df: pd.DataFrame):
     list: List of lists representing the table data.
     """
     df_clean = df.copy()
+
     # Replace NaN/NA with None so cells are blank, not 'nan'
     df_clean = df_clean.where(pd.notnull(df_clean), "")
     # Ensure Python native types (especially for numpy types)
     data = df_clean.values.tolist()
+    
     return data
 
 def add_excel_table(worksheet, df: pd.DataFrame, start_row: int, start_col: int, table_style: str):
@@ -390,9 +376,14 @@ def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, s
     for r in range(rows):      
         for c, col in enumerate(df.columns):
             # Pick a format name using matchers
-            fmt_name = infer_format_name(str(col), matchers, default_name=None)
+            fmt_name = infer_format_name(str(col), matchers, default_name=None)            
+
+            # If dtype is category, object or str apply category format
+            if df[col].dtype in("category", "object", "str"):
+                fmt_name = "category"
+
             fmt_obj  = get_format_obj(fmt_name)
-        
+
             worksheet.write(start_row + 1 + r, start_col + c, df.iat[r, c], fmt_obj)
 
                 
@@ -432,10 +423,11 @@ def build_from_toml(config_path: str,
         workbook = writer.book
 
         title_fmt    = workbook.add_format({"bold": True, "font_size": defaults.get("title_font_size", 14)})
-        subtitle_fmt = workbook.add_format({"bold": True, "font_size": defaults.get("subtitle_font_size", 12), "font_color": "#000000"})
-        footnote_fmt = workbook.add_format({"italic": True, "font_size": defaults.get("footnote_font_size", 9), "font_color": "#555555"})
+        subtitle_fmt = workbook.add_format({"bold": True, "font_size": defaults.get("subtitle_font_size", 12), "font_color": defaults.get("subtitle_font_color", "#000000")})
+        top_note_fmt = workbook.add_format({"font_size": defaults.get("top_note_font_size", 9), "font_color": defaults.get("top_note_font_color", "#555555")})
+        footnote_fmt = workbook.add_format({"italic": True, "font_size": defaults.get("footnote_font_size", 9), "font_color": defaults.get("footnote_font_color", "#555555")})
         protective_marking_fmt = workbook.add_format({"align": "center_across", "bold": True, "font_size": 18, "font_color": "#FF0000"})
-        tbl_hdr = workbook.add_format({'bold': True, 'bg_color': '#000000', 'border': 1, 'align': 'center'})
+        tbl_hdr = workbook.add_format({'bold': True, 'bg_color': defaults.get("table_header_bg_color", "#000000"), 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
 
         default_table_style = defaults.get("table_style", "Table Style Light 1")
         spacing_rows = int(defaults.get("spacing_rows", 2))
@@ -477,6 +469,13 @@ def build_from_toml(config_path: str,
                 worksheet.write(current_row, current_col, sheet_cfg["title"], title_fmt)
                 current_row += 2
 
+            # Add sheet top notes
+            if sheet_cfg.get("top_notes"):
+                for line in sheet_cfg["top_notes"]:
+                    worksheet.write(current_row, 0, line, top_note_fmt)
+                    current_row += 1
+                current_row += 2
+            
             # Iterate through tables
             for t_cfg in sheet_cfg.get("tables", []):
 
