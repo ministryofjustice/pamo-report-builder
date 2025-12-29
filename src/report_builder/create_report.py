@@ -546,22 +546,31 @@ def build_from_toml(config_path: str,
                 img = load_image(t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)                
                 worksheet.insert_image(xl_rowcol_to_cell(start_row, start_col), 'chart.png', {'image_data': img, 'x_scale': x_scale, 'y_scale': y_scale})
 
+                size = t_cfg.get("size", "medium")
+                if size == "small":
+                    chart_height_rows, chart_width_cols = 10, 5
+                elif size == "large":
+                    chart_height_rows, chart_width_cols = 19, 8
+                else:
+                    chart_height_rows, chart_width_cols = 15, 6
+
+                # This is the first free row under the chart block
+                # To place it (or anything) to the side, use cols
+                content_row_below_chart = start_row + chart_height_rows
+
                 # Add chart notes
                 if t_cfg.get("chart_notes"):
-                    r, c = xl_cell_to_rowcol(t_cfg["chart_notes_start_cell"])
-                    current_row, start_col = r, c
+                    if t_cfg.get("chart_notes_start_cell"):
+                        r, c = xl_cell_to_rowcol(t_cfg["chart_notes_start_cell"])
+                        current_row, start_col = r, c
+                    else:
+                        notes_row = content_row_below_chart
+                        notes_col = start_col
+
+                    current_row = notes_row
                     for line in t_cfg["chart_notes"]:                        
                         worksheet.write(current_row, start_col, line, footnote_fmt)
                         current_row += 1
-
-                current_row = current_row + 1 + spacing_rows
-                current_col = 0
-
-            # Add sheet footnotes
-            if sheet_cfg.get("footnotes"):
-                for line in sheet_cfg["footnotes"]:
-                    worksheet.write(current_row, 0, line, footnote_fmt)
-                    current_row += 1
                     
             current_row = current_row + 1 + spacing_rows
             current_col = 0
