@@ -436,18 +436,6 @@ def build_from_toml(config_path: str,
 
         default_table_style = defaults.get("table_style", "Table Style Light 1")
         spacing_rows = int(defaults.get("spacing_rows", 2))
-
-        ############################################################################
-        ############################################################################
-        matcher_specs  = cfg_formats.get("matchers", {})
-
-        # Compile matchers in insertion order
-        matchers = []
-        for pattern, fmt_name in matcher_specs.items():
-            matchers.append((re.compile(pattern), fmt_name))
-        ############################################################################
-        ############################################################################
-
         
         # Iterate through sheets
         for sheet_cfg in sheets:
