@@ -406,7 +406,7 @@ def build_from_toml(config_path: str,
 
     cfg = load_toml(config_path)
     base_dir = Path(base_dir) if base_dir else Path(config_path).resolve().parent
-
+        
     # Allow TOML to inject pythonpath entries, relative to base_dir
     for p in (cfg.get("imports", {}).get("pythonpath", []) or []):
         p_abs = (base_dir / p).resolve()
@@ -418,6 +418,11 @@ def build_from_toml(config_path: str,
     cfg_formats = cfg.get("formats", {})
     sheets = cfg.get("sheets", [])
 
+    if cfg["workbook"]["suppression"]:
+        if cfg["workbook"]["suppression"] == True:            
+            # Append _suppressed before the final extension (e.g., .xlsx → _suppressed.xlsx)
+            output = re.sub(r'(\.[^/\\.\s]+)$', r'_suppressed\1', output)
+    
     # Setup workbook
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         workbook = writer.book
@@ -431,7 +436,7 @@ def build_from_toml(config_path: str,
 
         default_table_style = defaults.get("table_style", "Table Style Light 1")
         spacing_rows = int(defaults.get("spacing_rows", 2))
-
+        
         # Iterate through sheets
         for sheet_cfg in sheets:
             # Add sheet
@@ -486,7 +491,7 @@ def build_from_toml(config_path: str,
                     start_row, start_col = r, c
 
                 df = load_dataframe(t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)
-
+               
                 # Add table and title
                 if df is None or df.empty:
                     if t_cfg.get("title"):
@@ -504,7 +509,46 @@ def build_from_toml(config_path: str,
                                                    t_cfg.get("style", default_table_style))
 
                 set_column_formats_and_widths(worksheet, df, start_row, start_col, workbook, cfg_formats, t_cfg)
+
+                ####################################################################################
+                # Handle suppression
+                if t_cfg.get("suppression"):
+                    if t_cfg.get("suppression") == True:
+                        # Get mask for suppression
+                        mask = build_suppression_mask (df)                
+        
+                        suppress_token = "~"
+                        index = False
+        
+                        # Determine mask for any % columns too and add to mask
+                        pct_cols = [c + " %" for c in mask.columns if (c + " %") in df.columns]
+                        
+                        for c in mask.columns:
+                            pct_col = c + " %"
+                            if pct_col in df.columns:
+                                mask[pct_col] = mask[c]
+        
                 
+                        # Column index mapping
+                        col_map = {col: (0 if not index else 1) + i
+                                   for i, col in enumerate(df.columns)}
+                
+                        # Iterate row-by-row and apply the mask
+                        for r, row_idx in enumerate(df.index):
+                            excel_row = start_row + 1 + r  # data starts below header
+                    
+                            for col in mask.columns:
+                                if mask.loc[row_idx, col]:       # True → suppress cell
+                                    excel_col = col_map[col]
+        
+                                    # Set format for mask
+                                    fmt_obj = workbook.add_format({
+                                        'align': 'right'      # horizontal alignment
+                                    })
+                                    # Apply mask to cell
+                                    worksheet.write(excel_row, excel_col, suppress_token, fmt_obj)
+                ####################################################################################
+                            
                 # Apply table header format
                 for col, name in enumerate(df.columns):
                     worksheet.write(start_row, start_col + col, name, tbl_hdr)
@@ -567,6 +611,154 @@ def build_from_toml(config_path: str,
             current_col = 0
 
     print(f"Workbook written: {output}")
+
+
+
+
+
+import pandas as pd
+import numpy as np
+from typing import Tuple, Optional, List
+
+def build_suppression_mask(
+    df: pd.DataFrame,
+    *,
+    primary_threshold: int = 3,
+    exclude_substrings: Tuple[str, ...] = ("%", "£"),
+    k_per_row: int = 2,
+    k_per_col: int = 2,
+    max_iters: int = 10,
+) -> pd.DataFrame:
+    """
+    Build a boolean suppression mask that:
+      1) Applies primary suppression to *base* columns (columns whose names DO NOT include '%' or '£'):
+         value < primary_threshold -> suppressed.
+      2) Enforces complementary suppression iteratively so that:
+         - Any row with ANY suppressed cells ends up with at least `k_per_row` suppressed cells,
+           specifically the *lowest k* numeric cells in that row.
+         - Any column with ANY suppressed cells ends up with at least `k_per_col` suppressed cells,
+           specifically the *lowest k* numeric cells in that column.
+      3) Iterates row/column enforcement until a fixed point is reached (or `max_iters` is hit),
+         because suppressions in columns can trigger new row suppressions and vice versa.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The published table (counts + % + anything else). Only *base* columns (no '%'/'£') are used
+        to determine suppression. You should later mirror suppression to related columns (e.g. '%').
+    primary_threshold : int, default 5
+        Values strictly less than this threshold are primary-suppressed.
+    exclude_substrings : tuple of str, default ('%', '£')
+        Any column name containing one of these substrings is *not* a base column for suppression logic.
+    k_per_row : int, default 2
+        Minimum number of suppressed cells per affected row (if any suppression occurs in that row).
+    k_per_col : int, default 2
+        Minimum number of suppressed cells per affected column (if any suppression occurs in that column).
+    max_iters : int, default 10
+        Maximum number of row/column passes to reach a fixed point.
+
+    Returns
+    -------
+    mask : pd.DataFrame(bool)
+        Boolean mask aligned to `df` (same index and columns).
+        Only base columns will have True/False according to the suppression rules.
+        Non-base columns are returned as False (you can mirror to them when writing to Excel).
+
+    Notes
+    -----
+    - If a row/column has fewer than k valid numeric cells, the function suppresses as many as exist.
+    - Ties are broken deterministically by index order (stable sort).
+    - This function doesn't try to avoid a 'Total' column; it *always* chooses the lowest values,
+      per your requirement ("should always be the lowest two values"). If you later want to avoid
+      using a totals column where possible, we can add an optional preference.
+    """
+    # 1) Identify base columns (no '%' or '£' in the name)
+    def is_base_col(col: str) -> bool:
+        name = str(col)
+        return not any(s in name for s in exclude_substrings)
+
+    base_cols: List[str] = [c for c in df.columns if is_base_col(c)]
+    # Initialize full mask as False everywhere
+    mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+
+    if not base_cols:
+        return mask
+
+    # 2) Numeric view for base columns (non-numeric -> NaN)
+    base_vals = df[base_cols].apply(pd.to_numeric, errors="coerce")
+
+    # 3) Primary suppression
+    base_mask = base_vals.lt(primary_threshold).fillna(False)
+
+    # 4) Helper functions to enforce k smallest in row/column
+    def enforce_row(i: int, current_mask_row: pd.Series) -> pd.Series:
+        """
+        If row i currently has any suppressed cells, ensure at least k_per_row are suppressed,
+        choosing the k_per_row *smallest* numeric values in that row among `base_cols`.
+        """
+        if k_per_row <= 0:
+            return current_mask_row
+
+        if not current_mask_row.any():
+            return current_mask_row  # no suppression in this row -> no action
+
+        # Sort numeric values ascending, stably; drop NaNs
+        s = base_vals.loc[i].dropna().sort_values(ascending=True, kind="mergesort")
+
+        if len(s) == 0:
+            return current_mask_row  # nothing numeric to suppress
+
+        # Choose the smallest k
+        choose_cols = list(s.index[:min(k_per_row, len(s))])
+        out = current_mask_row.copy()
+        out.loc[choose_cols] = True
+        return out
+
+    def enforce_col(c: str, current_mask_col: pd.Series) -> pd.Series:
+        """
+        If column c currently has any suppressed cells, ensure at least k_per_col are suppressed,
+        choosing the k_per_col *smallest* numeric values in that column across rows.
+        """
+        if k_per_col <= 0:
+            return current_mask_col
+
+        if not current_mask_col.any():
+            return current_mask_col  # no suppression in this column -> no action
+
+        s = base_vals[c].dropna().sort_values(ascending=True, kind="mergesort")
+
+        if len(s) == 0:
+            return current_mask_col
+
+        choose_rows = list(s.index[:min(k_per_col, len(s))])
+        out = current_mask_col.copy()
+        out.loc[choose_rows] = True
+        return out
+
+    # 5) Iterate row/column enforcement to fixed point
+    iters = 0
+    while iters < max_iters:
+        iters += 1
+        prev = base_mask.copy()
+
+        # Enforce rows
+        for i in df.index:
+            base_mask.loc[i, :] = enforce_row(i, base_mask.loc[i, :])
+
+        # Enforce columns
+        for c in base_cols:
+            base_mask.loc[:, c] = enforce_col(c, base_mask.loc[:, c])
+
+        if base_mask.equals(prev):
+            break  # fixed point reached
+
+    # 6) Inject base_mask into full mask; non-base columns remain False
+    for c in base_cols:
+        mask[c] = base_mask[c].astype(bool)
+
+    return mask
+
+
 
 # -----------------------------
 # Entry point
