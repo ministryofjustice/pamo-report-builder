@@ -3,10 +3,14 @@ import re
 import sys
 import importlib
 from pathlib import Path
+import fsspec
 import pandas as pd
 import toml
 from xlsxwriter.utility import xl_cell_to_rowcol
 from xlsxwriter.utility import xl_rowcol_to_cell
+
+import numpy as np
+from typing import Tuple, Optional, List
 
 # -----------------------------
 # Data loading helpers
@@ -22,6 +26,54 @@ def load_toml(path):
     """
     return toml.load(path)
 
+
+def load_to_dataframe(filepath, **kwargs) -> pd.DataFrame:
+    """
+    Load a CSV, Excel, or Parquet file into a pandas DataFrame.
+
+    Parameters
+    ----------
+    file_path : str
+        Full path to the file.
+    **kwargs
+        Additional arguments passed to the relevant pandas reader.
+
+    Returns
+    -------
+    pd.DataFrame
+        Loaded dataframe.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the file does not exist.
+    ValueError
+        If the file type is unsupported.
+    """
+
+    if not fsspec.open(filepath).fs.exists(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}")
+
+    
+    path = Path(filepath)
+    suffix = path.suffix.lower()
+
+    if suffix == ".csv":
+        return pd.read_csv(filepath, **kwargs)
+
+    elif suffix in [".xlsx", ".xls"]:
+        return pd.read_excel(filepath, **kwargs)
+
+    elif suffix == ".parquet":
+        return pd.read_parquet(filepath, **kwargs)
+
+    else:
+        raise ValueError(
+            f"Unsupported file type '{suffix}'. "
+            "Supported types are: .csv, .xlsx, .xls, .parquet"
+        )
+
+        
 def load_image(source: dict,
                    base_dir: Path | None = None,
                    func_registry: dict[str, callable] | None = None) -> pd.DataFrame:
@@ -40,11 +92,12 @@ def load_image(source: dict,
     base_dir = Path(base_dir) if base_dir else Path.cwd()
 
     if stype in ["gif", "jpg", "png", "tif"]:
+
+        if not fsspec.open(source["path"]).fs.exists(source["path"]):
+            raise FileNotFoundError(f"File not found: {source["path"]}")
+        
         path = os.path.expandvars(source["path"])
         path = (base_dir / path).resolve() if not os.path.isabs(path) else Path(path)
-
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"The file '{path}' was not found.")
 
         with open(path, 'rb') as f:
             img = io.BytesIO(f.read())
@@ -75,14 +128,16 @@ def load_image(source: dict,
         result = func(**kwargs)
 
     return result
-        
-def load_dataframe(source: dict,
+
+
+def load_dataframe(data_sources, source: dict,
                    base_dir: Path | None = None,
                    func_registry: dict[str, callable] | None = None) -> pd.DataFrame:
     """
     Load a DataFrame from a source dict.
     Supports: csv, excel, function.
     Args:
+    data_source (dict): Dictionary of dataframes contaiing pre-loaded data.
     source (dict): Dictionary specifying the type and path/function for the data.
     base_dir (Path, optional): Base directory for resolving relative paths.
     func_registry (dict, optional): Registry of callable functions.
@@ -94,16 +149,8 @@ def load_dataframe(source: dict,
 
     base_dir = Path(base_dir) if base_dir else Path.cwd()
 
-    if stype == "csv":
-        path = os.path.expandvars(source["path"])
-        path = (base_dir / path).resolve() if not os.path.isabs(path) else Path(path)
-        return pd.read_csv(path)
-
-    elif stype == "excel":
-        path = os.path.expandvars(source["path"])
-        path = (base_dir / path).resolve() if not os.path.isabs(path) else Path(path)
-        sheet = source.get("sheet")
-        return pd.read_excel(path, sheet_name=sheet)
+    if stype in ["csv", "excel", "parquet"]:
+        return data_sources[source["data_source"]]
 
     elif stype in {"function", "callable", "python"}:
         # Priority 1: registry name
@@ -126,7 +173,7 @@ def load_dataframe(source: dict,
                 raise ValueError("Function source requires 'registry' or 'dotted' (or 'module'+'function').")
 
         kwargs = source.get("kwargs", {}) or {}
-        result = func(**kwargs)
+        result = func(data_sources, **kwargs)
 
         # Accept a DataFrame or a dict[str, DataFrame]
         if isinstance(result, pd.DataFrame):
@@ -144,6 +191,7 @@ def load_dataframe(source: dict,
 
     else:
         raise ValueError(f"Unsupported source.type='{stype}'.")
+
 
 def resolve_callable(dotted: str, base_dir: Path | None = None):
     """
@@ -187,52 +235,36 @@ def infer_format_name(col_name: str, matchers: list[tuple[re.Pattern, str]], def
             return fmt_name
     return default_name
 
+
 def build_format(workbook, spec: dict):
-    """
-    Create (and return) a XlsxWriter format from a spec dict (e.g., {'num_format': '£#,##0'}).
-    Args:
-    workbook (XlsxWriter workbook object): Workbook in which we are working.
-    spec (dict): Format to be added.
-    Returns:
-    XlsxWriter workbook object: Workbook with specified format added.
-    """
-    fmt_args = {}
-    if spec.get("num_format"):
-        fmt_args["num_format"] = spec["num_format"]
-        
-    # you can add more properties here if you like, e.g. align, bold, font_color, etc.
-    
-        return workbook.add_format(fmt_args)
-    
-#    ####### Proposed update #######
-#     def build_format(workbook, spec: dict):
-#     """
-#     Create and return an XlsxWriter format from a spec dictionary.
-#     Supports num_format, align, bold, font_color, and any other
-#     XlsxWriter format properties.
-#     """
+     """
+     Create and return an XlsxWriter format from a spec dictionary.
+     Supports num_format, align, bold, font_color, and any other
+     XlsxWriter format properties.
+     """
 
-#     supported_keys = {
-#         "num_format",
-#         "align",
-#         "bold",
-#         "font_color",
-#         "font_name",
-#         "font_size",
-#         "italic",
-#         "underline",
-#         "bg_color",
-#         "border",
-#         "valign",
-#     }
+     supported_keys = {
+         "num_format",
+         "align",
+         "bold",
+         "font_color",
+         "font_name",
+         "font_size",
+         "italic",
+         "underline",
+         "bg_color",
+         "border",
+         "text_wrap",
+         "valign",
+     }
 
-#     fmt_args = {
-#         key: value
-#         for key, value in spec.items()
-#         if key in supported_keys and value is not None
-#     }
+     fmt_args = {
+         key: value
+         for key, value in spec.items()
+         if key in supported_keys and value is not None
+     }
 
-#     return workbook.add_format(fmt_args)
+     return workbook.add_format(fmt_args)
 
 
 def autosize_width(series: pd.Series, min_w=10, max_w=40) -> int:
@@ -255,6 +287,7 @@ def autosize_width(series: pd.Series, min_w=10, max_w=40) -> int:
     width = min(max_w, max(min_w, max_len + 2))
     return width
 
+
 # -----------------------------
 # Excel writing helpers (XlsxWriter)
 # -----------------------------
@@ -271,6 +304,7 @@ def write_title(worksheet, row, col, text, fmt):
     worksheet.write(row, col, text, fmt)
     return row + 2  # one line for title + one blank line
 
+
 def dataframe_to_table_data(df: pd.DataFrame):
     """
     Convert DataFrame to list-of-lists with Python scalars, with NaNs -> None.
@@ -280,11 +314,14 @@ def dataframe_to_table_data(df: pd.DataFrame):
     list: List of lists representing the table data.
     """
     df_clean = df.copy()
+
     # Replace NaN/NA with None so cells are blank, not 'nan'
     df_clean = df_clean.where(pd.notnull(df_clean), "")
     # Ensure Python native types (especially for numpy types)
     data = df_clean.values.tolist()
+    
     return data
+
 
 def add_excel_table(worksheet, df: pd.DataFrame, start_row: int, start_col: int, table_style: str):
     """
@@ -318,6 +355,7 @@ def add_excel_table(worksheet, df: pd.DataFrame, start_row: int, start_col: int,
         
     return last_row, last_col
 
+
 def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, start_col: int,
                                   workbook, cfg_formats: dict, table_cfg: dict):
     """
@@ -334,6 +372,7 @@ def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, s
     cfg_formats (dict): Dictionary of formats.
     table_cfg (dict): Dictionary of table formats.
     """
+
     default_spec   = cfg_formats.get("default", {"num_format": "", "width": 14})
     named          = cfg_formats.get("named", {})
     matcher_specs  = cfg_formats.get("matchers", {})
@@ -390,12 +429,156 @@ def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, s
     for r in range(rows):      
         for c, col in enumerate(df.columns):
             # Pick a format name using matchers
-            fmt_name = infer_format_name(str(col), matchers, default_name=None)
+            fmt_name = infer_format_name(str(col), matchers, default_name=None)            
+
+            # If dtype is category, object or str apply category format
+            if fmt_name is None and df[col].dtype in ("category", "object", "str"):
+                fmt_name = "category"
+
             fmt_obj  = get_format_obj(fmt_name)
-        
+            
             worksheet.write(start_row + 1 + r, start_col + c, df.iat[r, c], fmt_obj)
 
-                
+
+def build_suppression_mask(
+    df: pd.DataFrame,
+    *,
+    primary_threshold: int = 3,
+    exclude_substrings: Tuple[str, ...] = ("%", "£"),
+    k_per_row: int = 2,
+    k_per_col: int = 2,
+    max_iters: int = 10,
+) -> pd.DataFrame:
+    """
+    Build a boolean suppression mask that:
+      1) Applies primary suppression to *base* columns (columns whose names DO NOT include '%' or '£'):
+         value < primary_threshold -> suppressed.
+      2) Enforces complementary suppression iteratively so that:
+         - Any row with ANY suppressed cells ends up with at least `k_per_row` suppressed cells,
+           specifically the *lowest k* numeric cells in that row.
+         - Any column with ANY suppressed cells ends up with at least `k_per_col` suppressed cells,
+           specifically the *lowest k* numeric cells in that column.
+      3) Iterates row/column enforcement until a fixed point is reached (or `max_iters` is hit),
+         because suppressions in columns can trigger new row suppressions and vice versa.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The published table (counts + % + anything else). Only *base* columns (no '%'/'£') are used
+        to determine suppression. You should later mirror suppression to related columns (e.g. '%').
+    primary_threshold : int, default 5
+        Values strictly less than this threshold are primary-suppressed.
+    exclude_substrings : tuple of str, default ('%', '£')
+        Any column name containing one of these substrings is *not* a base column for suppression logic.
+    k_per_row : int, default 2
+        Minimum number of suppressed cells per affected row (if any suppression occurs in that row).
+    k_per_col : int, default 2
+        Minimum number of suppressed cells per affected column (if any suppression occurs in that column).
+    max_iters : int, default 10
+        Maximum number of row/column passes to reach a fixed point.
+
+    Returns
+    -------
+    mask : pd.DataFrame(bool)
+        Boolean mask aligned to `df` (same index and columns).
+        Only base columns will have True/False according to the suppression rules.
+        Non-base columns are returned as False (you can mirror to them when writing to Excel).
+
+    Notes
+    -----
+    - If a row/column has fewer than k valid numeric cells, the function suppresses as many as exist.
+    - Ties are broken deterministically by index order (stable sort).
+    - This function doesn't try to avoid a 'Total' column; it *always* chooses the lowest values,
+      per your requirement ("should always be the lowest two values"). If you later want to avoid
+      using a totals column where possible, we can add an optional preference.
+    """
+    # 1) Identify base columns (no '%' or '£' in the name)
+    def is_base_col(col: str) -> bool:
+        name = str(col)
+        return not any(s in name for s in exclude_substrings)
+
+    base_cols: List[str] = [c for c in df.columns if is_base_col(c)]
+    # Initialize full mask as False everywhere
+    mask = pd.DataFrame(False, index=df.index, columns=df.columns)
+
+    if not base_cols:
+        return mask
+
+    # 2) Numeric view for base columns (non-numeric -> NaN)
+    base_vals = df[base_cols].apply(pd.to_numeric, errors="coerce")
+
+    # 3) Primary suppression
+    base_mask = base_vals.lt(primary_threshold).fillna(False)
+
+    # 4) Helper functions to enforce k smallest in row/column
+    def enforce_row(i: int, current_mask_row: pd.Series) -> pd.Series:
+        """
+        If row i currently has any suppressed cells, ensure at least k_per_row are suppressed,
+        choosing the k_per_row *smallest* numeric values in that row among `base_cols`.
+        """
+        if k_per_row <= 0:
+            return current_mask_row
+
+        if not current_mask_row.any():
+            return current_mask_row  # no suppression in this row -> no action
+
+        # Sort numeric values ascending, stably; drop NaNs
+        s = base_vals.loc[i].dropna().sort_values(ascending=True, kind="mergesort")
+
+        if len(s) == 0:
+            return current_mask_row  # nothing numeric to suppress
+
+        # Choose the smallest k
+        choose_cols = list(s.index[:min(k_per_row, len(s))])
+        out = current_mask_row.copy()
+        out.loc[choose_cols] = True
+        return out
+
+    def enforce_col(c: str, current_mask_col: pd.Series) -> pd.Series:
+        """
+        If column c currently has any suppressed cells, ensure at least k_per_col are suppressed,
+        choosing the k_per_col *smallest* numeric values in that column across rows.
+        """
+        if k_per_col <= 0:
+            return current_mask_col
+
+        if not current_mask_col.any():
+            return current_mask_col  # no suppression in this column -> no action
+
+        s = base_vals[c].dropna().sort_values(ascending=True, kind="mergesort")
+
+        if len(s) == 0:
+            return current_mask_col
+
+        choose_rows = list(s.index[:min(k_per_col, len(s))])
+        out = current_mask_col.copy()
+        out.loc[choose_rows] = True
+        return out
+
+    # 5) Iterate row/column enforcement to fixed point
+    iters = 0
+    while iters < max_iters:
+        iters += 1
+        prev = base_mask.copy()
+
+        # Enforce rows
+        for i in df.index:
+            base_mask.loc[i, :] = enforce_row(i, base_mask.loc[i, :])
+
+        # Enforce columns
+        for c in base_cols:
+            base_mask.loc[:, c] = enforce_col(c, base_mask.loc[:, c])
+
+        if base_mask.equals(prev):
+            break  # fixed point reached
+
+    # 6) Inject base_mask into full mask; non-base columns remain False
+    for c in base_cols:
+        mask[c] = base_mask[c].astype(bool)
+
+    return mask
+
+
 # -----------------------------
 # Main build function
 # -----------------------------
@@ -412,10 +595,10 @@ def build_from_toml(config_path: str,
     Returns:
     None.
     """
-
+    print("REPORT BUILD STARTED...")
     cfg = load_toml(config_path)
     base_dir = Path(base_dir) if base_dir else Path(config_path).resolve().parent
-
+        
     # Allow TOML to inject pythonpath entries, relative to base_dir
     for p in (cfg.get("imports", {}).get("pythonpath", []) or []):
         p_abs = (base_dir / p).resolve()
@@ -427,21 +610,39 @@ def build_from_toml(config_path: str,
     cfg_formats = cfg.get("formats", {})
     sheets = cfg.get("sheets", [])
 
+    if "suppression" in cfg["workbook"].keys():
+        if cfg["workbook"]["suppression"] == True:            
+            # Append _suppressed before the final extension (e.g., .xlsx → _suppressed.xlsx)
+            output = re.sub(r'(\.[^/\\.\s]+)$', r'_suppressed\1', output)
+
+    # Load data sources
+    data_sources = {}
+    for source in cfg["data_sources"]:
+        source_kwargs = cfg["data_sources"][source].get("kwargs", {})
+        print("Loading: " + source)
+        filepath = source_kwargs.pop("filepath", None)
+
+        data_sources[source] = load_to_dataframe(filepath, **source_kwargs)
+    
     # Setup workbook
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         workbook = writer.book
 
         title_fmt    = workbook.add_format({"bold": True, "font_size": defaults.get("title_font_size", 14)})
-        subtitle_fmt = workbook.add_format({"bold": True, "font_size": defaults.get("subtitle_font_size", 12), "font_color": "#000000"})
-        footnote_fmt = workbook.add_format({"italic": True, "font_size": defaults.get("footnote_font_size", 9), "font_color": "#555555"})
+        subtitle_fmt = workbook.add_format({"bold": True, "font_size": defaults.get("subtitle_font_size", 12), "font_color": defaults.get("subtitle_font_color", "#000000")})
+        top_note_fmt = workbook.add_format({"font_size": defaults.get("top_note_font_size", 9), "font_color": defaults.get("top_note_font_color", "#555555")})
+        footnote_fmt = workbook.add_format({"italic": True, "font_size": defaults.get("footnote_font_size", 9), "font_color": defaults.get("footnote_font_color", "#555555")})
         protective_marking_fmt = workbook.add_format({"align": "center_across", "bold": True, "font_size": 18, "font_color": "#FF0000"})
-        tbl_hdr = workbook.add_format({'bold': True, 'bg_color': '#000000', 'border': 1, 'align': 'center'})
+        tbl_hdr = workbook.add_format({'bold': True, 'bg_color': defaults.get("table_header_bg_color", "#000000"), 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
 
         default_table_style = defaults.get("table_style", "Table Style Light 1")
         spacing_rows = int(defaults.get("spacing_rows", 2))
-
+        
         # Iterate through sheets
         for sheet_cfg in sheets:
+            max_table_row = 0
+            max_chart_row = 0
+            
             # Add sheet
             sheet_name = sheet_cfg["name"]
             worksheet = workbook.add_worksheet(sheet_name)
@@ -477,6 +678,13 @@ def build_from_toml(config_path: str,
                 worksheet.write(current_row, current_col, sheet_cfg["title"], title_fmt)
                 current_row += 2
 
+            # Add sheet top notes
+            if sheet_cfg.get("top_notes"):
+                for line in sheet_cfg["top_notes"]:
+                    worksheet.write(current_row, 0, line, top_note_fmt)
+                    current_row += 1
+                current_row += 2
+            
             # Iterate through tables
             for t_cfg in sheet_cfg.get("tables", []):
 
@@ -486,8 +694,8 @@ def build_from_toml(config_path: str,
                     r, c = xl_cell_to_rowcol(t_cfg["start_cell"])
                     start_row, start_col = r, c
 
-                df = load_dataframe(t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)
-
+                df = load_dataframe(data_sources, t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)
+               
                 # Add table and title
                 if df is None or df.empty:
                     if t_cfg.get("title"):
@@ -505,7 +713,46 @@ def build_from_toml(config_path: str,
                                                    t_cfg.get("style", default_table_style))
 
                 set_column_formats_and_widths(worksheet, df, start_row, start_col, workbook, cfg_formats, t_cfg)
+    
+                ####################################################################################
+                # Handle suppression
+                if t_cfg.get("suppression"):
+                    if t_cfg.get("suppression") == True:
+                        # Get mask for suppression
+                        mask = build_suppression_mask (df)                
+        
+                        suppress_token = "~"
+                        index = False
+        
+                        # Determine mask for any % columns too and add to mask
+                        pct_cols = [c + " %" for c in mask.columns if (c + " %") in df.columns]
+                        
+                        for c in mask.columns:
+                            pct_col = c + " %"
+                            if pct_col in df.columns:
+                                mask[pct_col] = mask[c]
+        
                 
+                        # Column index mapping
+                        col_map = {col: (0 if not index else 1) + i
+                                   for i, col in enumerate(df.columns)}
+                
+                        # Iterate row-by-row and apply the mask
+                        for r, row_idx in enumerate(df.index):
+                            excel_row = start_row + 1 + r  # data starts below header
+                    
+                            for col in mask.columns:
+                                if mask.loc[row_idx, col]:       # True → suppress cell
+                                    excel_col = col_map[col]
+        
+                                    # Set format for mask
+                                    fmt_obj = workbook.add_format({
+                                        'align': 'right'      # horizontal alignment
+                                    })
+                                    # Apply mask to cell
+                                    worksheet.write(excel_row, excel_col, suppress_token, fmt_obj)
+                ####################################################################################
+                            
                 # Apply table header format
                 for col, name in enumerate(df.columns):
                     worksheet.write(start_row, start_col + col, name, tbl_hdr)
@@ -520,6 +767,10 @@ def build_from_toml(config_path: str,
 
                 current_row = current_row + 1 + spacing_rows
                 current_col = 0
+
+                # Save max row from tables
+                if current_row > max_table_row:
+                    max_table_row = current_row
 
             # Add charts
             for t_cfg in sheet_cfg.get("charts", []):
@@ -558,8 +809,13 @@ def build_from_toml(config_path: str,
                 current_row = current_row + 1 + spacing_rows
                 current_col = 0
 
+                # Save max row from charts
+                if current_row > max_chart_row:
+                    max_chart_row = current_row
+
             # Add sheet footnotes
             if sheet_cfg.get("footnotes"):
+                current_row = max(max_table_row, max_chart_row)
                 for line in sheet_cfg["footnotes"]:
                     worksheet.write(current_row, 0, line, footnote_fmt)
                     current_row += 1
@@ -568,6 +824,7 @@ def build_from_toml(config_path: str,
             current_col = 0
 
     print(f"Workbook written: {output}")
+
 
 # -----------------------------
 # Entry point

@@ -10,6 +10,7 @@ def test_build_from_toml_no_sheets(monkeypatch, tmp_path):
 
     cfg = {
         "workbook": {"output": str(tmp_path / "out.xlsx")},
+        "data_sources": {},
         "defaults": {},
         "formats": {},
         "sheets": [],
@@ -74,6 +75,7 @@ def test_build_from_toml_single_chart(monkeypatch, tmp_path):
     
     cfg = {
         "workbook": {"output": str(tmp_path / "out.xlsx")},
+        "data_sources": {},
         "defaults": {"spacing_rows": 1},
         "formats": {},
         "sheets": [

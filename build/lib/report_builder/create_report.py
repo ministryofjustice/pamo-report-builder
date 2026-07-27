@@ -3,14 +3,10 @@ import re
 import sys
 import importlib
 from pathlib import Path
-import fsspec
 import pandas as pd
 import toml
 from xlsxwriter.utility import xl_cell_to_rowcol
 from xlsxwriter.utility import xl_rowcol_to_cell
-
-import numpy as np
-from typing import Tuple, Optional, List
 
 # -----------------------------
 # Data loading helpers
@@ -26,54 +22,6 @@ def load_toml(path):
     """
     return toml.load(path)
 
-
-def load_to_dataframe(filepath, **kwargs) -> pd.DataFrame:
-    """
-    Load a CSV, Excel, or Parquet file into a pandas DataFrame.
-
-    Parameters
-    ----------
-    file_path : str
-        Full path to the file.
-    **kwargs
-        Additional arguments passed to the relevant pandas reader.
-
-    Returns
-    -------
-    pd.DataFrame
-        Loaded dataframe.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the file does not exist.
-    ValueError
-        If the file type is unsupported.
-    """
-
-    if not fsspec.open(filepath).fs.exists(filepath):
-        raise FileNotFoundError(f"File not found: {filepath}")
-
-    
-    path = Path(filepath)
-    suffix = path.suffix.lower()
-
-    if suffix == ".csv":
-        return pd.read_csv(filepath, **kwargs)
-
-    elif suffix in [".xlsx", ".xls"]:
-        return pd.read_excel(filepath, **kwargs)
-
-    elif suffix == ".parquet":
-        return pd.read_parquet(filepath, **kwargs)
-
-    else:
-        raise ValueError(
-            f"Unsupported file type '{suffix}'. "
-            "Supported types are: .csv, .xlsx, .xls, .parquet"
-        )
-
-        
 def load_image(source: dict,
                    base_dir: Path | None = None,
                    func_registry: dict[str, callable] | None = None) -> pd.DataFrame:
@@ -92,12 +40,11 @@ def load_image(source: dict,
     base_dir = Path(base_dir) if base_dir else Path.cwd()
 
     if stype in ["gif", "jpg", "png", "tif"]:
-
-        if not fsspec.open(source["path"]).fs.exists(source["path"]):
-            raise FileNotFoundError(f"File not found: {source["path"]}")
-        
         path = os.path.expandvars(source["path"])
         path = (base_dir / path).resolve() if not os.path.isabs(path) else Path(path)
+
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"The file '{path}' was not found.")
 
         with open(path, 'rb') as f:
             img = io.BytesIO(f.read())
@@ -128,16 +75,14 @@ def load_image(source: dict,
         result = func(**kwargs)
 
     return result
-
-
-def load_dataframe(data_sources, source: dict,
+        
+def load_dataframe(source: dict,
                    base_dir: Path | None = None,
                    func_registry: dict[str, callable] | None = None) -> pd.DataFrame:
     """
     Load a DataFrame from a source dict.
     Supports: csv, excel, function.
     Args:
-    data_source (dict): Dictionary of dataframes contaiing pre-loaded data.
     source (dict): Dictionary specifying the type and path/function for the data.
     base_dir (Path, optional): Base directory for resolving relative paths.
     func_registry (dict, optional): Registry of callable functions.
@@ -149,8 +94,16 @@ def load_dataframe(data_sources, source: dict,
 
     base_dir = Path(base_dir) if base_dir else Path.cwd()
 
-    if stype in ["csv", "excel", "parquet"]:
-        return data_sources[source["data_source"]]
+    if stype == "csv":
+        path = os.path.expandvars(source["path"])
+        path = (base_dir / path).resolve() if not os.path.isabs(path) else Path(path)
+        return pd.read_csv(path)
+
+    elif stype == "excel":
+        path = os.path.expandvars(source["path"])
+        path = (base_dir / path).resolve() if not os.path.isabs(path) else Path(path)
+        sheet = source.get("sheet")
+        return pd.read_excel(path, sheet_name=sheet)
 
     elif stype in {"function", "callable", "python"}:
         # Priority 1: registry name
@@ -173,7 +126,7 @@ def load_dataframe(data_sources, source: dict,
                 raise ValueError("Function source requires 'registry' or 'dotted' (or 'module'+'function').")
 
         kwargs = source.get("kwargs", {}) or {}
-        result = func(data_sources, **kwargs)
+        result = func(**kwargs)
 
         # Accept a DataFrame or a dict[str, DataFrame]
         if isinstance(result, pd.DataFrame):
@@ -191,7 +144,6 @@ def load_dataframe(data_sources, source: dict,
 
     else:
         raise ValueError(f"Unsupported source.type='{stype}'.")
-
 
 def resolve_callable(dotted: str, base_dir: Path | None = None):
     """
@@ -287,7 +239,6 @@ def autosize_width(series: pd.Series, min_w=10, max_w=40) -> int:
     width = min(max_w, max(min_w, max_len + 2))
     return width
 
-
 # -----------------------------
 # Excel writing helpers (XlsxWriter)
 # -----------------------------
@@ -303,7 +254,6 @@ def write_title(worksheet, row, col, text, fmt):
     """
     worksheet.write(row, col, text, fmt)
     return row + 2  # one line for title + one blank line
-
 
 def dataframe_to_table_data(df: pd.DataFrame):
     """
@@ -321,7 +271,6 @@ def dataframe_to_table_data(df: pd.DataFrame):
     data = df_clean.values.tolist()
     
     return data
-
 
 def add_excel_table(worksheet, df: pd.DataFrame, start_row: int, start_col: int, table_style: str):
     """
@@ -355,7 +304,6 @@ def add_excel_table(worksheet, df: pd.DataFrame, start_row: int, start_col: int,
         
     return last_row, last_col
 
-
 def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, start_col: int,
                                   workbook, cfg_formats: dict, table_cfg: dict):
     """
@@ -372,7 +320,6 @@ def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, s
     cfg_formats (dict): Dictionary of formats.
     table_cfg (dict): Dictionary of table formats.
     """
-
     default_spec   = cfg_formats.get("default", {"num_format": "", "width": 14})
     named          = cfg_formats.get("named", {})
     matcher_specs  = cfg_formats.get("matchers", {})
@@ -432,13 +379,253 @@ def set_column_formats_and_widths(worksheet, df: pd.DataFrame, start_row: int, s
             fmt_name = infer_format_name(str(col), matchers, default_name=None)            
 
             # If dtype is category, object or str apply category format
-            if fmt_name is None and df[col].dtype in ("category", "object", "str"):
+            if df[col].dtype in("category", "object", "str"):
                 fmt_name = "category"
 
             fmt_obj  = get_format_obj(fmt_name)
-            
+
             worksheet.write(start_row + 1 + r, start_col + c, df.iat[r, c], fmt_obj)
 
+                
+# -----------------------------
+# Main build function
+# -----------------------------
+def build_from_toml(config_path: str,
+                    func_registry: dict[str, callable] | None = None,
+                    base_dir: str | Path | None = None):
+
+    """
+    Main procedure to create an Excel report.
+    Args:
+    config_path (str): File path to the config file that sets out the structure and content.
+    func_registry (dict): Dictionary of functions needed to create the tables/charts that will be placed into Excel.
+    base_dir (str): Folder path of the base directory.
+    Returns:
+    None.
+    """
+    print("REPORT BUILD STARTED...")
+    cfg = load_toml(config_path)
+    base_dir = Path(base_dir) if base_dir else Path(config_path).resolve().parent
+        
+    # Allow TOML to inject pythonpath entries, relative to base_dir
+    for p in (cfg.get("imports", {}).get("pythonpath", []) or []):
+        p_abs = (base_dir / p).resolve()
+        if str(p_abs) not in sys.path:
+            sys.path.insert(0, str(p_abs))
+
+    output = cfg["workbook"]["output"]
+    defaults = cfg.get("defaults", {})
+    cfg_formats = cfg.get("formats", {})
+    sheets = cfg.get("sheets", [])
+
+    if cfg["workbook"]["suppression"]:
+        if cfg["workbook"]["suppression"] == True:            
+            # Append _suppressed before the final extension (e.g., .xlsx → _suppressed.xlsx)
+            output = re.sub(r'(\.[^/\\.\s]+)$', r'_suppressed\1', output)
+
+
+    # Load data sources
+    for source in cfg["data_sources"]:
+        print(source)
+    sys.exit()
+
+    
+    # Setup workbook
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        workbook = writer.book
+
+        title_fmt    = workbook.add_format({"bold": True, "font_size": defaults.get("title_font_size", 14)})
+        subtitle_fmt = workbook.add_format({"bold": True, "font_size": defaults.get("subtitle_font_size", 12), "font_color": defaults.get("subtitle_font_color", "#000000")})
+        top_note_fmt = workbook.add_format({"font_size": defaults.get("top_note_font_size", 9), "font_color": defaults.get("top_note_font_color", "#555555")})
+        footnote_fmt = workbook.add_format({"italic": True, "font_size": defaults.get("footnote_font_size", 9), "font_color": defaults.get("footnote_font_color", "#555555")})
+        protective_marking_fmt = workbook.add_format({"align": "center_across", "bold": True, "font_size": 18, "font_color": "#FF0000"})
+        tbl_hdr = workbook.add_format({'bold': True, 'bg_color': defaults.get("table_header_bg_color", "#000000"), 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
+
+        default_table_style = defaults.get("table_style", "Table Style Light 1")
+        spacing_rows = int(defaults.get("spacing_rows", 2))
+        
+        # Iterate through sheets
+        for sheet_cfg in sheets:
+            # Add sheet
+            sheet_name = sheet_cfg["name"]
+            worksheet = workbook.add_worksheet(sheet_name)
+            writer.sheets[sheet_name] = worksheet
+
+            # Add print header
+            if sheet_cfg.get("header"):
+                worksheet.set_header(sheet_cfg["header"])
+                
+            # Add print footer
+            if sheet_cfg.get("footer"):
+                worksheet.set_footer(sheet_cfg["footer"])
+
+            current_row = 0
+            current_col = 0
+
+            # Add sheet protective marking
+            if sheet_cfg.get("protective_marking"):
+                if sheet_cfg.get("protective_marking_span"):  
+                    span = sheet_cfg["protective_marking_span"]
+                else:
+                    span = 10
+                    
+                for col in range(0, span):
+                    worksheet.write_blank(0, col, None, protective_marking_fmt)
+                    worksheet.write(current_row, current_col, sheet_cfg["protective_marking"], protective_marking_fmt)
+                    worksheet.set_row(0, 24)
+
+                current_row += 2
+
+            # Add sheet title
+            if sheet_cfg.get("title"):
+                worksheet.write(current_row, current_col, sheet_cfg["title"], title_fmt)
+                current_row += 2
+
+            # Add sheet top notes
+            if sheet_cfg.get("top_notes"):
+                for line in sheet_cfg["top_notes"]:
+                    worksheet.write(current_row, 0, line, top_note_fmt)
+                    current_row += 1
+                current_row += 2
+            
+            # Iterate through tables
+            for t_cfg in sheet_cfg.get("tables", []):
+
+                start_row = current_row
+                start_col = current_col
+                if t_cfg.get("start_cell"):
+                    r, c = xl_cell_to_rowcol(t_cfg["start_cell"])
+                    start_row, start_col = r, c
+
+                df = load_dataframe(t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)
+               
+                # Add table and title
+                if df is None or df.empty:
+                    if t_cfg.get("title"):
+                        worksheet.write(start_row, start_col, t_cfg["title"], subtitle_fmt)
+                        start_row += 1
+                    worksheet.write(start_row, start_col, "(no data)")
+                    current_row = start_row + spacing_rows + 1
+                    continue
+                if t_cfg.get("title"):
+                    worksheet.write(start_row, start_col, t_cfg["title"], subtitle_fmt)
+                    print(t_cfg["title"])
+                    start_row += 1
+
+                end_row, end_col = add_excel_table(worksheet, df, start_row, start_col,
+                                                   t_cfg.get("style", default_table_style))
+
+                set_column_formats_and_widths(worksheet, df, start_row, start_col, workbook, cfg_formats, t_cfg)
+
+                ####################################################################################
+                # Handle suppression
+                if t_cfg.get("suppression"):
+                    if t_cfg.get("suppression") == True:
+                        # Get mask for suppression
+                        mask = build_suppression_mask (df)                
+        
+                        suppress_token = "~"
+                        index = False
+        
+                        # Determine mask for any % columns too and add to mask
+                        pct_cols = [c + " %" for c in mask.columns if (c + " %") in df.columns]
+                        
+                        for c in mask.columns:
+                            pct_col = c + " %"
+                            if pct_col in df.columns:
+                                mask[pct_col] = mask[c]
+        
+                
+                        # Column index mapping
+                        col_map = {col: (0 if not index else 1) + i
+                                   for i, col in enumerate(df.columns)}
+                
+                        # Iterate row-by-row and apply the mask
+                        for r, row_idx in enumerate(df.index):
+                            excel_row = start_row + 1 + r  # data starts below header
+                    
+                            for col in mask.columns:
+                                if mask.loc[row_idx, col]:       # True → suppress cell
+                                    excel_col = col_map[col]
+        
+                                    # Set format for mask
+                                    fmt_obj = workbook.add_format({
+                                        'align': 'right'      # horizontal alignment
+                                    })
+                                    # Apply mask to cell
+                                    worksheet.write(excel_row, excel_col, suppress_token, fmt_obj)
+                ####################################################################################
+                            
+                # Apply table header format
+                for col, name in enumerate(df.columns):
+                    worksheet.write(start_row, start_col + col, name, tbl_hdr)
+
+                current_row = end_row + 1
+
+                # Add table notes
+                if t_cfg.get("table_notes"):
+                    for line in t_cfg["table_notes"]:
+                        worksheet.write(current_row, start_col, line, footnote_fmt)
+                        current_row += 1
+
+                current_row = current_row + 1 + spacing_rows
+                current_col = 0
+
+            # Add charts
+            for t_cfg in sheet_cfg.get("charts", []):
+                start_row = current_row
+                start_col = current_col
+                if t_cfg.get("start_cell"):
+                    r, c = xl_cell_to_rowcol(t_cfg["start_cell"])
+                    start_row, start_col = r, c
+
+                if t_cfg.get("title"):
+                    worksheet.write(start_row, start_col, t_cfg["title"], subtitle_fmt)
+                    start_row += 1
+
+                if t_cfg.get("x_scale"):
+                    x_scale = t_cfg["x_scale"]
+                else:
+                    x_scale = 1.0
+
+                if t_cfg.get("y_scale"):
+                    y_scale = t_cfg["y_scale"]
+                else:
+                    y_scale = 1.0                
+                
+                # Insert the image
+                img = load_image(t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)                
+                worksheet.insert_image(xl_rowcol_to_cell(start_row, start_col), 'chart.png', {'image_data': img, 'x_scale': x_scale, 'y_scale': y_scale})
+
+                # Add chart notes
+                if t_cfg.get("chart_notes"):
+                    r, c = xl_cell_to_rowcol(t_cfg["chart_notes_start_cell"])
+                    current_row, start_col = r, c
+                    for line in t_cfg["chart_notes"]:                        
+                        worksheet.write(current_row, start_col, line, footnote_fmt)
+                        current_row += 1
+
+                current_row = current_row + 1 + spacing_rows
+                current_col = 0
+
+            # Add sheet footnotes
+            if sheet_cfg.get("footnotes"):
+                for line in sheet_cfg["footnotes"]:
+                    worksheet.write(current_row, 0, line, footnote_fmt)
+                    current_row += 1
+                    
+            current_row = current_row + 1 + spacing_rows
+            current_col = 0
+
+    print(f"Workbook written: {output}")
+
+
+
+
+
+import pandas as pd
+import numpy as np
+from typing import Tuple, Optional, List
 
 def build_suppression_mask(
     df: pd.DataFrame,
@@ -578,252 +765,6 @@ def build_suppression_mask(
 
     return mask
 
-
-# -----------------------------
-# Main build function
-# -----------------------------
-def build_from_toml(config_path: str,
-                    func_registry: dict[str, callable] | None = None,
-                    base_dir: str | Path | None = None):
-
-    """
-    Main procedure to create an Excel report.
-    Args:
-    config_path (str): File path to the config file that sets out the structure and content.
-    func_registry (dict): Dictionary of functions needed to create the tables/charts that will be placed into Excel.
-    base_dir (str): Folder path of the base directory.
-    Returns:
-    None.
-    """
-    print("REPORT BUILD STARTED...")
-    cfg = load_toml(config_path)
-    base_dir = Path(base_dir) if base_dir else Path(config_path).resolve().parent
-        
-    # Allow TOML to inject pythonpath entries, relative to base_dir
-    for p in (cfg.get("imports", {}).get("pythonpath", []) or []):
-        p_abs = (base_dir / p).resolve()
-        if str(p_abs) not in sys.path:
-            sys.path.insert(0, str(p_abs))
-
-    output = cfg["workbook"]["output"]
-    defaults = cfg.get("defaults", {})
-    cfg_formats = cfg.get("formats", {})
-    sheets = cfg.get("sheets", [])
-
-    if "suppression" in cfg["workbook"].keys():
-        if cfg["workbook"]["suppression"] == True:            
-            # Append _suppressed before the final extension (e.g., .xlsx → _suppressed.xlsx)
-            output = re.sub(r'(\.[^/\\.\s]+)$', r'_suppressed\1', output)
-
-    # Load data sources
-    data_sources = {}
-    for source in cfg["data_sources"]:
-        source_kwargs = cfg["data_sources"][source].get("kwargs", {})
-        print("Loading: " + source)
-        filepath = source_kwargs.pop("filepath", None)
-
-        data_sources[source] = load_to_dataframe(filepath, **source_kwargs)
-    
-    # Setup workbook
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        workbook = writer.book
-
-        title_fmt    = workbook.add_format({"bold": True, "font_size": defaults.get("title_font_size", 14)})
-        subtitle_fmt = workbook.add_format({"bold": True, "font_size": defaults.get("subtitle_font_size", 12), "font_color": defaults.get("subtitle_font_color", "#000000")})
-        top_note_fmt = workbook.add_format({"font_size": defaults.get("top_note_font_size", 9), "font_color": defaults.get("top_note_font_color", "#555555")})
-        footnote_fmt = workbook.add_format({"italic": True, "font_size": defaults.get("footnote_font_size", 9), "font_color": defaults.get("footnote_font_color", "#555555")})
-        protective_marking_fmt = workbook.add_format({"align": "center_across", "bold": True, "font_size": 18, "font_color": "#FF0000"})
-        tbl_hdr = workbook.add_format({'bold': True, 'bg_color': defaults.get("table_header_bg_color", "#000000"), 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
-
-        default_table_style = defaults.get("table_style", "Table Style Light 1")
-        spacing_rows = int(defaults.get("spacing_rows", 2))
-        
-        # Iterate through sheets
-        for sheet_cfg in sheets:
-            max_table_row = 0
-            max_chart_row = 0
-            
-            # Add sheet
-            sheet_name = sheet_cfg["name"]
-            worksheet = workbook.add_worksheet(sheet_name)
-            writer.sheets[sheet_name] = worksheet
-
-            # Add print header
-            if sheet_cfg.get("header"):
-                worksheet.set_header(sheet_cfg["header"])
-                
-            # Add print footer
-            if sheet_cfg.get("footer"):
-                worksheet.set_footer(sheet_cfg["footer"])
-
-            current_row = 0
-            current_col = 0
-
-            # Add sheet protective marking
-            if sheet_cfg.get("protective_marking"):
-                if sheet_cfg.get("protective_marking_span"):  
-                    span = sheet_cfg["protective_marking_span"]
-                else:
-                    span = 10
-                    
-                for col in range(0, span):
-                    worksheet.write_blank(0, col, None, protective_marking_fmt)
-                    worksheet.write(current_row, current_col, sheet_cfg["protective_marking"], protective_marking_fmt)
-                    worksheet.set_row(0, 24)
-
-                current_row += 2
-
-            # Add sheet title
-            if sheet_cfg.get("title"):
-                worksheet.write(current_row, current_col, sheet_cfg["title"], title_fmt)
-                current_row += 2
-
-            # Add sheet top notes
-            if sheet_cfg.get("top_notes"):
-                for line in sheet_cfg["top_notes"]:
-                    worksheet.write(current_row, 0, line, top_note_fmt)
-                    current_row += 1
-                current_row += 2
-            
-            # Iterate through tables
-            for t_cfg in sheet_cfg.get("tables", []):
-
-                start_row = current_row
-                start_col = current_col
-                if t_cfg.get("start_cell"):
-                    r, c = xl_cell_to_rowcol(t_cfg["start_cell"])
-                    start_row, start_col = r, c
-
-                df = load_dataframe(data_sources, t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)
-               
-                # Add table and title
-                if df is None or df.empty:
-                    if t_cfg.get("title"):
-                        worksheet.write(start_row, start_col, t_cfg["title"], subtitle_fmt)
-                        start_row += 1
-                    worksheet.write(start_row, start_col, "(no data)")
-                    current_row = start_row + spacing_rows + 1
-                    continue
-                if t_cfg.get("title"):
-                    worksheet.write(start_row, start_col, t_cfg["title"], subtitle_fmt)
-                    print(t_cfg["title"])
-                    start_row += 1
-
-                end_row, end_col = add_excel_table(worksheet, df, start_row, start_col,
-                                                   t_cfg.get("style", default_table_style))
-
-                set_column_formats_and_widths(worksheet, df, start_row, start_col, workbook, cfg_formats, t_cfg)
-    
-                ####################################################################################
-                # Handle suppression
-                if t_cfg.get("suppression"):
-                    if t_cfg.get("suppression") == True:
-                        # Get mask for suppression
-                        mask = build_suppression_mask (df)                
-        
-                        suppress_token = "~"
-                        index = False
-        
-                        # Determine mask for any % columns too and add to mask
-                        pct_cols = [c + " %" for c in mask.columns if (c + " %") in df.columns]
-                        
-                        for c in mask.columns:
-                            pct_col = c + " %"
-                            if pct_col in df.columns:
-                                mask[pct_col] = mask[c]
-        
-                
-                        # Column index mapping
-                        col_map = {col: (0 if not index else 1) + i
-                                   for i, col in enumerate(df.columns)}
-                
-                        # Iterate row-by-row and apply the mask
-                        for r, row_idx in enumerate(df.index):
-                            excel_row = start_row + 1 + r  # data starts below header
-                    
-                            for col in mask.columns:
-                                if mask.loc[row_idx, col]:       # True → suppress cell
-                                    excel_col = col_map[col]
-        
-                                    # Set format for mask
-                                    fmt_obj = workbook.add_format({
-                                        'align': 'right'      # horizontal alignment
-                                    })
-                                    # Apply mask to cell
-                                    worksheet.write(excel_row, excel_col, suppress_token, fmt_obj)
-                ####################################################################################
-                            
-                # Apply table header format
-                for col, name in enumerate(df.columns):
-                    worksheet.write(start_row, start_col + col, name, tbl_hdr)
-
-                current_row = end_row + 1
-
-                # Add table notes
-                if t_cfg.get("table_notes"):
-                    for line in t_cfg["table_notes"]:
-                        worksheet.write(current_row, start_col, line, footnote_fmt)
-                        current_row += 1
-
-                current_row = current_row + 1 + spacing_rows
-                current_col = 0
-
-                # Save max row from tables
-                if current_row > max_table_row:
-                    max_table_row = current_row
-
-            # Add charts
-            for t_cfg in sheet_cfg.get("charts", []):
-                start_row = current_row
-                start_col = current_col
-                if t_cfg.get("start_cell"):
-                    r, c = xl_cell_to_rowcol(t_cfg["start_cell"])
-                    start_row, start_col = r, c
-
-                if t_cfg.get("title"):
-                    worksheet.write(start_row, start_col, t_cfg["title"], subtitle_fmt)
-                    start_row += 1
-
-                if t_cfg.get("x_scale"):
-                    x_scale = t_cfg["x_scale"]
-                else:
-                    x_scale = 1.0
-
-                if t_cfg.get("y_scale"):
-                    y_scale = t_cfg["y_scale"]
-                else:
-                    y_scale = 1.0                
-                
-                # Insert the image
-                img = load_image(t_cfg["source"][0], base_dir=base_dir, func_registry=func_registry)                
-                worksheet.insert_image(xl_rowcol_to_cell(start_row, start_col), 'chart.png', {'image_data': img, 'x_scale': x_scale, 'y_scale': y_scale})
-
-                # Add chart notes
-                if t_cfg.get("chart_notes"):
-                    r, c = xl_cell_to_rowcol(t_cfg["chart_notes_start_cell"])
-                    current_row, start_col = r, c
-                    for line in t_cfg["chart_notes"]:                        
-                        worksheet.write(current_row, start_col, line, footnote_fmt)
-                        current_row += 1
-
-                current_row = current_row + 1 + spacing_rows
-                current_col = 0
-
-                # Save max row from charts
-                if current_row > max_chart_row:
-                    max_chart_row = current_row
-
-            # Add sheet footnotes
-            if sheet_cfg.get("footnotes"):
-                current_row = max(max_table_row, max_chart_row)
-                for line in sheet_cfg["footnotes"]:
-                    worksheet.write(current_row, 0, line, footnote_fmt)
-                    current_row += 1
-                    
-            current_row = current_row + 1 + spacing_rows
-            current_col = 0
-
-    print(f"Workbook written: {output}")
 
 
 # -----------------------------
