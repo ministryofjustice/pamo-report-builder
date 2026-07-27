@@ -30,7 +30,7 @@ def test_build_format_without_format():
 
     result = build_format(wb, spec)
 
-    assert wb.last_fmt_args is None
+    assert wb.last_fmt_args == {}
 
 
 def test_build_format_num_format_none_treated_as_absent():
@@ -40,7 +40,7 @@ def test_build_format_num_format_none_treated_as_absent():
 
     result = build_format(wb, spec)
 
-    assert wb.last_fmt_args == None
+    assert wb.last_fmt_args == {}
 
 
 def test_build_format_ignores_unknown_keys():
@@ -54,7 +54,7 @@ def test_build_format_ignores_unknown_keys():
 
     result = build_format(wb, spec)
 
-    assert wb.last_fmt_args == {"num_format": "0.00"}
+    assert wb.last_fmt_args == {"num_format": "0.00", "bold": True, "align": "center",}
     assert result is wb.return_value
 
     

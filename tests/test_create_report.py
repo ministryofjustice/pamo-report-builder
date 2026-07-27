@@ -29,21 +29,21 @@ class TestExcelHelpers(unittest.TestCase):
 
     def test_load_dataframe_csv(self):
         df = pd.DataFrame({"A": [1, 2], "B": [3, 4]})
-        temp_path = Path("temp_test.csv")
-        df.to_csv(temp_path, index=False)
-        source = {"type": "csv", "path": str(temp_path)}
-        loaded_df = load_dataframe(source)
+        filename = "test.csv"
+        data_sources = {}
+        data_sources[filename] = df
+        source = {"type": "csv", "data_source": str(filename)}
+        loaded_df = load_dataframe(data_sources,source)
         pd.testing.assert_frame_equal(df, loaded_df)
-        temp_path.unlink()
 
     def test_load_dataframe_excel(self):
         df = pd.DataFrame({"A": [1, 2], "B": [3, 4]})
-        temp_path = Path("temp_test.xlsx")
-        df.to_excel(temp_path, index=False, sheet_name="Sheet1")
-        source = {"type": "excel", "path": str(temp_path), "sheet": "Sheet1"}
-        loaded_df = load_dataframe(source)
+        filename = "temp_test.xlsx"
+        data_sources = {}
+        data_sources[filename] = df
+        source = {"type": "excel", "data_source": str(filename)}
+        loaded_df = load_dataframe(data_sources,source)
         pd.testing.assert_frame_equal(df, loaded_df)
-        temp_path.unlink()
 
     def test_resolve_callable_valid(self):
         # Assuming there's a dummy function in a test module

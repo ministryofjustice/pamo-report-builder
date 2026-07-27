@@ -52,9 +52,9 @@ def test_set_column_formats_uses_matchers_and_caches_formats(monkeypatch):
 
     def fake_build_format(workbook, spec):
         build_calls.append(spec)
-        if spec is cfg_formats["named"]["money"]:
+        if spec == cfg_formats["named"]["money"]:
             return money_fmt
-        if spec is cfg_formats["named"]["date"]:
+        if spec == cfg_formats["named"]["date"]:
             return date_fmt
         return default_fmt
 
@@ -62,6 +62,15 @@ def test_set_column_formats_uses_matchers_and_caches_formats(monkeypatch):
 
     set_column_formats_and_widths(ws, df, start_row=0, start_col=0,
                                   workbook=wb, cfg_formats=cfg_formats, table_cfg=table_cfg)
+
+    print("\nBUILD CALLS:")
+    print(build_calls)
+    print("\nWRITE CALLS:")
+    print(ws.write_calls)
+    print("\nOBJECTS:")
+    print("money_fmt =", money_fmt)
+    print("date_fmt =", date_fmt)
+    print("default_fmt =", default_fmt)
 
     assert cfg_formats["named"]["money"] in build_calls
     assert cfg_formats["named"]["date"] in build_calls

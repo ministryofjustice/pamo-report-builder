@@ -3,6 +3,15 @@
 [workbook]
 output = "s3://alpha-pay-modelling/Testing/OFFSEN-example_report.xlsx"
 
+# Each data source should be a filepath list of kwargs needed, e.g sheet_name for xlsx files.
+#[data_sources.file_path_data.kwargs]
+#io = "/my_folder/filename.xlsx"
+#sheet_name = 0
+
+[data_sources.file_path_moj_data.kwargs]
+filepath = "s3://alpha-pay-modelling/staff_by_pay_terms/on_strength_staff/2025-05-31_MOJ_Pay_On-strength_staff_only.csv"
+low_memory = false
+
 [defaults]
 table_style = "Table Style Medium 1"
 spacing_rows = 2
@@ -93,6 +102,15 @@ title = "Table 3. Empty example (no data)"
 source = [
   { type = "function", dotted = "builders.build_empty_table" }
 ]
+
+
+# 4) Empty DataFrame to test '(no data)' branch
+[[sheets.tables]]
+title = "Table 4. Headcount."
+source = [
+  { type = "function", dotted = "builders.build_headcount_table", kwargs = { data_source = "file_path_moj_data"}}
+]
+
 
 
 

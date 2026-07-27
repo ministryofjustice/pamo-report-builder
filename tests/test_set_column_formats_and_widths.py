@@ -52,9 +52,9 @@ def test_set_column_formats_uses_matchers_and_caches_formats(monkeypatch):
 
     def fake_build_format(workbook, spec):
         build_calls.append(spec)
-        if spec is cfg_formats["named"]["money"]:
+        if spec == cfg_formats["named"]["money"]:
             return money_fmt
-        if spec is cfg_formats["named"]["date"]:
+        if spec == cfg_formats["named"]["date"]:
             return date_fmt
         return default_fmt
 

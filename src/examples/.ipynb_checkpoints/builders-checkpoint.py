@@ -18,7 +18,7 @@ def _parse_asof(asof: str) -> date:
         return date.today()
 
 
-def build_base_pay_by_grade(asof: str, scenario: str = "Central") -> pd.DataFrame:
+def build_base_pay_by_grade(data_sources, asof: str, scenario: str = "Central") -> pd.DataFrame:
     """
     Return a simple base pay table by grade for testing.
 
@@ -65,7 +65,7 @@ def build_base_pay_by_grade(asof: str, scenario: str = "Central") -> pd.DataFram
     return df
 
 
-def build_pay_tables(asof: str, scenario: str = "Central") -> dict[str, pd.DataFrame]:
+def build_pay_tables(data_sources, asof: str, scenario: str = "Central") -> dict[str, pd.DataFrame]:
     """
     Return a dict of DataFrames to test the TOML 'key' selector.
 
@@ -73,7 +73,7 @@ def build_pay_tables(asof: str, scenario: str = "Central") -> dict[str, pd.DataF
       - 'base_pay' : base pay by grade
       - 'on_costs' : on-cost rates by grade alone
     """
-    base = build_base_pay_by_grade(asof=asof, scenario=scenario).copy()
+    base = build_base_pay_by_grade(data_sources, asof=asof, scenario=scenario).copy()
 
     on_costs = base.loc[:, ["Grade", "OC rate"]].copy()
     on_costs.rename(columns={"OC rate": "OC rate"}, inplace=True)
@@ -84,7 +84,7 @@ def build_pay_tables(asof: str, scenario: str = "Central") -> dict[str, pd.DataF
     }
 
 
-def build_empty_table() -> pd.DataFrame:
+def build_empty_table(data_sources) -> pd.DataFrame:
     """
     Return an empty DataFrame with headers only — to test your '(no data)' flow.
     """
@@ -92,6 +92,15 @@ def build_empty_table() -> pd.DataFrame:
     return pd.DataFrame(columns=cols)
 
 
+def build_headcount_table(data_sources, data_source: str) -> pd.DataFrame:
+    df = data_sources[data_source]
+    headcount_df = (
+    df.groupby("der_government_grade")["employee_number"]
+      .nunique()
+      .to_frame("headcount")
+      .reset_index()
+    )
+    return headcount_df
 
 def make_chart():
     # Sample data
